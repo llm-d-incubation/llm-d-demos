@@ -1,0 +1,23 @@
+# systemd --user unit: keeps the llm-d dashboard port-forward alive independent of any
+# terminal session (requires `loginctl enable-linger $USER`).
+#
+#   install -Dm644 manifests/port-forward.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now llmd-port-forward
+#   journalctl --user -u llmd-port-forward -f
+[Unit]
+Description=kubectl port-forward llmd-live-dashboard -> 0.0.0.0:8085
+After=network-online.target
+
+[Service]
+Type=simple
+Environment=CTX=gke_your-gcp-project-id_us-central1_llmd-demo-cluster
+EnvironmentFile=-%h/.config/llmd-port-forward.env
+Environment=PORT=8085
+Environment=PATH=/usr/bin:/bin:/usr/local/bin
+ExecStart=/usr/bin/kubectl --context ${CTX} -n llm-d-serving port-forward --address 0.0.0.0,:: svc/llmd-live-dashboard ${PORT}:80
+Restart=always
+RestartSec=1
+StartLimitIntervalSec=0
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,54 @@
+{
+  "elapsed_s": 33.06,
+  "peak_concurrent_in_flight": 100,
+  "pools": {
+    "multi-turn": {
+      "total_requests": 2900,
+      "ok_requests": 2900,
+      "error_requests": 0,
+      "qps": 87.71,
+      "input_tok_per_s": 196332.2,
+      "output_tok_per_s": 5613.7,
+      "total_input_tokens": 6491169,
+      "total_output_tokens": 185600,
+      "latency_p50_ms": 926.8,
+      "latency_p90_ms": 1303.7,
+      "latency_p99_ms": 1541.5,
+      "routed_backends": {
+        "tpu-v7x-torchtpu-multiturn": 2900
+      }
+    },
+    "one-shot": {
+      "total_requests": 420,
+      "ok_requests": 420,
+      "error_requests": 0,
+      "qps": 12.7,
+      "input_tok_per_s": 565.8,
+      "output_tok_per_s": 620.3,
+      "total_input_tokens": 18708,
+      "total_output_tokens": 20510,
+      "latency_p50_ms": 694.3,
+      "latency_p90_ms": 725.1,
+      "latency_p99_ms": 736.1,
+      "routed_backends": {
+        "gpu-vllm-oneshot": 420
+      }
+    }
+  },
+  "prefix_caching_enabled": true,
+  "vllm_prometheus_delta": {
+    "requests": 2900,
+    "prompt_tokens": 6491169,
+    "generation_tokens": 185600,
+    "cached_tokens": 5484544,
+    "queried_tokens": 6491169,
+    "recomputed_tokens": 1006625,
+    "prefix_cache_hit_pct": 84.49,
+    "ttft_mean_ms": 126.43,
+    "e2e_mean_ms": 940.73,
+    "queue_mean_ms": 3.35,
+    "prefill_tok_per_s": 196345.1,
+    "recomputed_tok_per_s": 30448.4,
+    "decode_tok_per_s": 5614.0
+  }
+}

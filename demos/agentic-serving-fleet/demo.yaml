@@ -1,0 +1,47 @@
+schema_version: 1
+id: agentic-serving-fleet
+title: Agentic Serving Fleet
+summary: >
+  Interactive 5-screen dashboard and live cluster harness showing 1,000 stateful
+  Hermes agents behind llm-d prefix-cache routing, priority flow control, and
+  3-tier KV cache offloading across heterogeneous accelerators.
+status: active
+
+capabilities:
+  - precise-prefix-cache-routing
+  - flow-control
+  - tiered-prefix-cache
+  - heterogeneous-accelerators
+
+modes:
+  simulator:
+    supported: true
+    command: "make -C demos/agentic-serving-fleet simulate"
+    port: 8090
+    requirements: "Python 3.10+ (standard library only, no cluster required)"
+  live:
+    supported: true
+    reference_environment:
+      platform: "GKE 1.34+ with Agent Substrate"
+      accelerators:
+        - "TPU v7x Ironwood"
+        - "NVIDIA Blackwell / G4 GPUs"
+      engines:
+        - "vLLM (vllm-torchtpu, CUDA)"
+        - "SGLang"
+      model: "google/gemma-4-26B-A4B-it"
+
+links:
+  guides:
+    - https://github.com/llm-d/llm-d/tree/main/guides/precise-prefix-cache-routing
+    - https://github.com/llm-d/llm-d/tree/main/guides/flow-control
+    - https://github.com/llm-d/llm-d/tree/main/guides/tiered-prefix-cache
+  video: https://www.youtube.com/watch?v=fEFgSMLfBj0
+
+maintainers:
+  - seanhorgan
+  - sanjeevrg89
+  - Bslabe123
+  - achandrasekar
+  - chcost
+  - AnishShah

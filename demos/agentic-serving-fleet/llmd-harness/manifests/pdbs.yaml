@@ -1,0 +1,75 @@
+# PodDisruptionBudgets for the benchmark demo: block voluntary disruptions (kubectl drain, node-pool
+# upgrades, autoscaler consolidation) of every pod on the demo path. With maxUnavailable: 0 the eviction
+# API refuses to evict; combine with a GKE maintenance exclusion so auto-upgrades do not try either:
+#
+#   gcloud container clusters update "${CLUSTER_NAME}" --region "${REGION}" \
+#     --add-maintenance-exclusion-name benchmark-freeze \
+#     --add-maintenance-exclusion-start <RFC3339> --add-maintenance-exclusion-end <RFC3339> \
+#     --add-maintenance-exclusion-scope no_upgrades
+#
+# Remove after the recording: kubectl delete -f manifests/pdbs.yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: llmd-tpu-decode
+  namespace: llm-d-serving
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: llmd-tpu-decode
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: llmd-tpu-epp
+  namespace: llm-d-serving
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      llm-d-router-gateway: llmd-tpu-epp
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: llm-d-gateway
+  namespace: llm-d-serving
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: llm-d-gateway
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: llmd-live-dashboard
+  namespace: llm-d-serving
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: llmd-live-dashboard
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: llmd-gpu-decode
+  namespace: llm-d-gpu
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: llmd-gpu-decode
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: llmd-gpu-epp
+  namespace: llm-d-gpu
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      llm-d-router-gateway: llmd-gpu-epp

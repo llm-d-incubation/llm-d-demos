@@ -1,0 +1,63 @@
+# =============================================================================
+# GKE Agent Substrate (AX / Substrate) Blueprint for 1,000s of Hermes Agents
+#
+# Defines:
+#   1. WorkerPool (`hermes-sandbox-workerpool`): Pre-warmed gVisor sandboxes on
+#      non-E2 CPU nodes (`${SUBSTRATE_NODEPOOL}`) that multiplex active Actors
+#      while idle Actors are suspended to memory/Filestore snapshots (<1s restore).
+#   2. ActorTemplate (`hermes-agent-actor`): Blueprint for instantiating 1,000+
+#      Hermes Agent Actors configured with Frozen Snapshot memory (`MEMORY.md` +
+#      `USER.md`) and custom `x-llm-d-*` headers pointing to `llm-d-gateway`.
+# =============================================================================
+apiVersion: substrate.agent-substrate.io/v1alpha1
+kind: WorkerPool
+metadata:
+  name: hermes-sandbox-workerpool
+  namespace: ${NAMESPACE}
+spec:
+  replicas: 32
+  runtimeClassName: gvisor
+  nodeSelector:
+    llm-d.ai/role: agent-substrate
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+---
+apiVersion: substrate.agent-substrate.io/v1alpha1
+kind: ActorTemplate
+metadata:
+  name: hermes-agent-actor
+  namespace: ${NAMESPACE}
+spec:
+  workerPoolRef:
+    name: hermes-sandbox-workerpool
+  suspendAfterIdleSeconds: 10
+  template:
+    spec:
+      containers:
+        - name: hermes-agent
+          image: python:3.12-slim
+          command: ["python3", "/opt/hermes/hermes_swarm.py"]
+          args:
+            - "--endpoint=http://llm-d-gateway.${NAMESPACE}.svc.cluster.local/v1/chat/completions"
+            - "--model=${SERVED_MODEL_NAME}"
+            - "--num-agents=1"
+            - "--concurrency=1"
+            - "--turns=${TURNS_PER_SESSION}"
+            - "--multi-turn-ratio=${MULTI_TURN_RATIO}"
+          env:
+            - name: OPENAI_BASE_URL
+              value: "http://llm-d-gateway.${NAMESPACE}.svc.cluster.local/v1"
+            - name: HERMES_FROZEN_SNAPSHOT
+              value: "true"
+          volumeMounts:
+            - name: hermes-runner
+              mountPath: /opt/hermes
+      volumes:
+        - name: hermes-runner
+          configMap:
+            name: hermes-swarm-script

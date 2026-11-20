@@ -1,0 +1,8 @@
+# See https://go.k8s.io/owners for format documentation
+# Keep this list in sync with `maintainers` in demo.yaml.
+
+approvers:
+  - your-github-handle
+
+reviewers:
+  - your-github-handle

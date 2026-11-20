@@ -1,0 +1,22 @@
+# Internal LoadBalancer for the llm-d dashboard: VPC-reachable, no public IP (team endpoint for the
+# recording). The ClusterIP Service in deployment.yaml.tmpl stays for in-cluster / port-forward use.
+apiVersion: v1
+kind: Service
+metadata:
+  name: llmd-live-dashboard-ilb
+  namespace: ${NAMESPACE}
+  labels:
+    app: llmd-live-dashboard
+  annotations:
+    networking.gke.io/load-balancer-type: "Internal"
+    networking.gke.io/internal-load-balancer-allow-global-access: "true"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Cluster
+  selector:
+    app: llmd-live-dashboard
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8085
+      protocol: TCP

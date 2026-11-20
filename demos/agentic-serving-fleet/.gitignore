@@ -1,0 +1,14 @@
+# Demo-local binaries and runtime artifacts
+bin/
+fleet_driver
+fleet_driver_hermes
+runsc-fast
+*.o
+*.a
+*.so
+*.whl
+.image-tag
+.rendered-*
+.torchtpu-cl
+.verify-response.json
+shots/

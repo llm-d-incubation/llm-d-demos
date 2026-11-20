@@ -1,0 +1,6 @@
+# Default owners for repository framework, governance, templates, and CI
+* @seanhorgan @Bslabe123 @achandrasekar @chcost @AnishShah
+
+# Demo-specific owners
+/demos/agentic-serving-fleet/ @seanhorgan @sanjeevrg89 @Bslabe123 @achandrasekar @chcost @AnishShah
+

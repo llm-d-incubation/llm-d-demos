@@ -1,0 +1,143 @@
+# GPU pool with KV cache tiering (HBM -> host DRAM), selected by ENABLE_KV_TIERING=1.
+# Identical to gpu-pool.yaml.tmpl except for the lines marked "kv-tiering".
+#
+# vLLM's native OffloadingConnector keeps a host-RAM pool of KV blocks evicted from HBM and
+# restores them on the next turn instead of re-prefilling. Validated with Gemma 4 26B-A4B on
+# vllm/vllm-openai v0.32.0 (digest sha256:c1c9f6fd5c109ba7f0546a59f5b2f15fb87f64c77782e90a27b648b42a8e67c3).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llmd-gpu-decode
+  labels:
+    app: llmd-gpu-decode
+    llm-d.ai/model: gemma-4-26b-a4b-gpu
+    llm-d.ai/workload: one-shot
+    llm-d.ai/accelerator-vendor: nvidia
+spec:
+  replicas: ${GPU_REPLICAS}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: llmd-gpu-decode
+      llm-d.ai/model: gemma-4-26b-a4b-gpu
+  template:
+    metadata:
+      labels:
+        app: llmd-gpu-decode
+        llm-d.ai/model: gemma-4-26b-a4b-gpu
+        llm-d.ai/workload: one-shot
+        llm-d.ai/accelerator-vendor: nvidia
+    spec:
+      containers:
+        - name: modelserver
+          image: ${GPU_SERVING_IMAGE}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          args:
+            - "--model=${MODEL_ID}"
+            - "--served-model-name=${SERVED_MODEL_NAME}"
+            - "--port=8000"
+            - "--tensor-parallel-size=${GPU_TENSOR_PARALLEL_SIZE}"
+            - "--enable-expert-parallel"
+            - "--language-model-only"
+            # kv-tiering: Gemma 4's sliding-window and full-attention layers have different head
+            # dims, so vLLM needs the hybrid KV cache manager to build a KV spec when a connector is
+            # configured. The plain pool disables it; here it must stay on.
+            - "--no-disable-hybrid-kv-cache-manager"
+            - "--limit-mm-per-prompt={\"image\":0,\"video\":0,\"audio\":0}"
+            - "--hf-overrides={\"architectures\":[\"Gemma4ForCausalLM\"]}"
+            - "--max-model-len=16384"
+            - "--max-num-seqs=128"
+            - "--gpu-memory-utilization=0.90"
+            - "--trust-remote-code"
+            # kv-tiering: optional demo cap on HBM KV per GPU (KV_TIER_HBM_CAP_BYTES). Empty = no cap.
+            ${KV_TIER_HBM_CAP_LINE}
+            # kv-tiering: host DRAM pool, plus the storage tier when ENABLE_KV_STORAGE_TIER=1; the JSON is
+            # assembled in 60_deploy_llmd_heterogeneous.sh. No "block_size" (Gemma 4 has two GPU block sizes).
+            - '--kv-transfer-config=${KV_TRANSFER_CONFIG_JSON}'
+          env:
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: llm-d-hf-token
+                  key: HF_TOKEN
+                  optional: true
+            - name: VLLM_LOGGING_LEVEL
+              value: INFO
+            # kv-tiering: stable block hashes across restarts and replicas.
+            - name: PYTHONHASHSEED
+              value: "42"
+            - name: NCCL_MNNVL_ENABLE
+              value: "0"
+            - name: NCCL_NVLS_ENABLE
+              value: "0"
+            - name: NCCL_CUMEM_ENABLE
+              value: "0"
+            - name: NCCL_DEBUG
+              value: WARN
+          resources:
+            limits:
+              nvidia.com/gpu: "${GPU_TENSOR_PARALLEL_SIZE}"
+              # kv-tiering: the host pool is an mmap in /dev/shm and counts against the pod.
+              memory: ${GPU_POD_MEMORY}
+            requests:
+              nvidia.com/gpu: "${GPU_TENSOR_PARALLEL_SIZE}"
+              memory: ${GPU_POD_MEMORY}
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+            # kv-storage: RWX volume for the storage tier (empty line when disabled).
+            ${KV_STORAGE_VOLUME_MOUNT_LINE}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+      nodeSelector:
+        cloud.google.com/gke-accelerator: ${GPU_ACCELERATOR_TYPE}
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+        - key: cloud.google.com/gke-spot
+          operator: Exists
+          effect: NoSchedule
+        - key: kubernetes.io/arch
+          operator: Equal
+          value: arm64
+          effect: NoSchedule
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            # kv-tiering: must be larger than KV_TIER_CPU_BYTES.
+            sizeLimit: ${GPU_DSHM_SIZE}
+        # kv-storage: the PVC named by KV_STORAGE_PVC (empty line when disabled).
+        ${KV_STORAGE_VOLUME_LINE}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llmd-gpu-service
+  labels:
+    llm-d.ai/workload: one-shot
+spec:
+  selector:
+    app: llmd-gpu-decode
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000

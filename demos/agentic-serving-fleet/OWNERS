@@ -1,0 +1,17 @@
+# See https://go.k8s.io/owners for format documentation
+
+approvers:
+  - seanhorgan
+  - sanjeevrg89
+  - Bslabe123
+  - achandrasekar
+  - chcost
+  - AnishShah
+
+reviewers:
+  - seanhorgan
+  - sanjeevrg89
+  - Bslabe123
+  - achandrasekar
+  - chcost
+  - AnishShah

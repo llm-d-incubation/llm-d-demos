@@ -1,0 +1,41 @@
+# Demo Catalog Manifest (Schema v1)
+# Copy this directory via `make new-demo SLUG=<your-slug>` and replace placeholders.
+# After editing, run `make index && make validate`.
+
+schema_version: 1
+id: "<slug>"
+title: "My llm-d Demo"
+summary: "One or two sentences describing what this demo shows and why it matters."
+status: experimental # active | experimental | archived
+
+# Pick capability slugs from DEMOS-POLICY.md §5 (must match controlled taxonomy).
+capabilities:
+  - optimized-baseline
+
+modes:
+  simulator:
+    supported: true
+    command: "make -C demos/<slug> simulate"
+    port: 8090
+    requirements: "Python 3.10+ (no cluster required)"
+  live:
+    supported: false
+    # When supported: true, declare the verified Reference Environment:
+    # reference_environment:
+    #   platform: "Kubernetes 1.32+"
+    #   accelerators: ["TPUs or NVIDIA GPUs"]
+    #   engines: ["vLLM"]
+    #   model: "<HuggingFace/Model-Name>"
+
+links:
+  # Link upstream llm-d guides instead of vendoring manifests.
+  guides:
+    - https://github.com/llm-d/llm-d/tree/main/guides/optimized-baseline
+  # Optional links:
+  # video: https://...
+  # blog: https://...
+  # live_url: https://...
+
+# GitHub handles matching demos/<slug>/OWNERS (without leading @).
+maintainers:
+  - your-github-handle

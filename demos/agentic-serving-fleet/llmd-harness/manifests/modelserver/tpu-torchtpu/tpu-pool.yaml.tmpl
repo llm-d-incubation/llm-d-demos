@@ -1,0 +1,255 @@
+# Optimized TPU v7x Multi-Turn Agentic ModelServer Pool (`llmd-tpu-decode`)
+# Serving RedHatAI/gemma-4-26B-A4B-it-FP8-Dynamic with Torch TPU (`vllm-torchtpu`):
+#   - TP=2, DP=4, EP=true (`--tensor-parallel-size=2 --data-parallel-size=4 --enable-expert-parallel`)
+#   - `--attention-backend CUSTOM` + `--disable-hybrid-kv-cache-manager`
+#   - `--enable-prefix-caching` + ZMQ `--kv-events-config` (`tcp://*:5556`)
+#   - `--kv-cache-dtype=fp8` + `--block-size=256`
+#   - `--language-model-only` + `--hf-overrides '{"architectures":["Gemma4ForCausalLM"]}'`
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llmd-tpu-decode
+  labels:
+    app: llmd-tpu-decode
+    llm-d.ai/inferenceServing: "true"
+    llm-d.ai/workload: multi-turn
+    llm-d.ai/accelerator: tpu-v7x
+    llm-d.ai/backend: torch-tpu
+    llm-d.ai/model: gemma-4-26B-A4B
+spec:
+  replicas: ${TPU_REPLICAS}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: llmd-tpu-decode
+  template:
+    metadata:
+      labels:
+        app: llmd-tpu-decode
+        llm-d.ai/inferenceServing: "true"
+        llm-d.ai/workload: multi-turn
+        llm-d.ai/accelerator: tpu-v7x
+        llm-d.ai/backend: torch-tpu
+        llm-d.ai/model: gemma-4-26B-A4B
+    spec:
+      imagePullSecrets:
+        - name: ar-torchtpu-pull
+      nodeSelector:
+        cloud.google.com/gke-tpu-topology: ${TPU_TOPOLOGY}
+        cloud.google.com/gke-tpu-accelerator: tpu7x
+      tolerations:
+        - key: cloud.google.com/gke-queued
+          operator: Exists
+          effect: NoSchedule
+        - key: google.com/tpu
+          operator: Exists
+          effect: NoSchedule
+      initContainers:
+        - name: tpu-node-setup
+          image: busybox
+          securityContext:
+            privileged: true
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              sysctl -w vm.max_map_count=33554432 || true
+              if [ -f /sys/module/vfio_iommu_type1/parameters/dma_entry_limit ]; then
+                echo 8000000 > /sys/module/vfio_iommu_type1/parameters/dma_entry_limit || true
+              fi
+              rm -rf /dev/shm/tmp/* /dev/shm/dshm/vllm_offload_* /dev/shm/torchinductor /dev/shm/psm_* || true
+              mkdir -p /dev/shm/dshm /dev/shm/hf-cache /dev/shm/tmp
+              chmod -R 777 /dev/shm/dshm /dev/shm/hf-cache /dev/shm/tmp
+          volumeMounts:
+            - name: host-shm
+              mountPath: /dev/shm
+      volumes:
+        - name: host-shm
+          hostPath:
+            path: /dev/shm
+            type: Directory
+        - name: dshm
+          hostPath:
+            path: /dev/shm/dshm
+            type: DirectoryOrCreate
+        - name: hf-cache-ram
+          hostPath:
+            path: /dev/shm/hf-cache
+            type: DirectoryOrCreate
+        - name: tmp-ram
+          hostPath:
+            path: /dev/shm/tmp
+            type: DirectoryOrCreate
+        - name: quant-patch
+          configMap:
+            name: torchtpu-quant-patch
+            optional: true
+        ${TPU_KV_STORAGE_VOLUME_LINE}
+      containers:
+        - name: modelserver
+          image: ${TPU_SERVING_IMAGE}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: status.podIP
+            - name: MODEL_NAME
+              value: "${MODEL_ID}"
+            - name: SERVED_MODEL_NAME
+              value: "${SERVED_MODEL_NAME}"
+            - name: PORT
+              value: "8000"
+            - name: HF_HOME
+              value: /var/cache/hf-cache
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: llm-d-hf-token
+                  key: HF_TOKEN
+                  optional: true
+            - name: TMPDIR
+              value: /tmp
+            - name: ENABLE_KV_OFFLOAD
+              value: "${ENABLE_KV_OFFLOAD}"
+            - name: PYTHONHASHSEED
+              value: "42"
+            - name: VLLM_PLUGINS
+              value: torchtpu
+            - name: VLLM_LOGGING_LEVEL
+              value: INFO
+            - name: TPU_STDERR_LOG_LEVEL
+              value: "0"
+            - name: VLLM_DISABLE_COMPILE_CACHE
+              value: "1"
+            - name: VLLM_ENGINE_READY_TIMEOUT_S
+              value: "5400"
+            - name: TORCH_DIST_TIMEOUT
+              value: "1200"
+            - name: VLLM_RPC_TIMEOUT
+              value: "1200000"
+            - name: VLLM_SHM_BROADCAST_TIMEOUT_S
+              value: "1200"
+            - name: VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS
+              value: "1200"
+          resources:
+            limits:
+              google.com/tpu: "${TPU_CHIPS_PER_NODE}"
+              memory: 800Gi
+              cpu: "180"
+            requests:
+              google.com/tpu: "${TPU_CHIPS_PER_NODE}"
+              memory: 800Gi
+              cpu: "180"
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+            - name: hf-cache-ram
+              mountPath: /var/cache/hf-cache
+            - name: hf-cache-ram
+              mountPath: /root/.cache/huggingface
+            - name: tmp-ram
+              mountPath: /tmp
+            - name: quant-patch
+              mountPath: /opt/quant-patch
+              readOnly: true
+            ${TPU_KV_STORAGE_VOLUME_MOUNT_LINE}
+          ports:
+            - containerPort: 8000
+              name: http
+            - containerPort: 5556
+              name: kv-events
+          command:
+            - /bin/bash
+            - -c
+          args:
+            - |
+              export PYTHONUNBUFFERED=1
+              [[ -z "${HF_TOKEN:-}" ]] && unset HF_TOKEN || true
+              unset TPU_PROCESS_ADDRESSES TPU_WORKER_HOSTNAMES MEGASCALE_NUM_SLICES MEGASCALE_SLICE_ID MEGASCALE_COORDINATOR_ADDRESS || true
+              if [ -d /opt/quant-patch ] && [ -f /opt/quant-patch/compressed_tensors.py ]; then
+                cp -f /opt/quant-patch/__init__.py /opt/quant-patch/compressed_tensors.py /opt/quant-patch/fp8.py /root/torchtpu-vllm/src/vllm_torchtpu/layers/vllm/quantization/
+                rm -rf /root/torchtpu-vllm/src/vllm_torchtpu/layers/vllm/quantization/__pycache__
+                echo "Applied compressed-tensors FP8 TPU quantization patch to /root/torchtpu-vllm"
+              fi
+              if [ "${ENABLE_KV_OFFLOAD:-0}" = "1" ] && [ -d /opt/quant-patch ] && [ -f /opt/quant-patch/cpu_tpu.py ]; then
+                cp -f /opt/quant-patch/cpu_tpu.py /root/torchtpu-vllm/src/vllm_torchtpu/offload/cpu_tpu.py
+                rm -rf /root/torchtpu-vllm/src/vllm_torchtpu/offload/__pycache__
+                # Import the offload module from apply_tpu_patches(), which torchtpu runs in every process
+                # (API server, engine core, workers), so its hooks are installed before the connector loads.
+                TPU_PLATFORM_PY=/root/torchtpu-vllm/src/vllm_torchtpu/platforms/tpu_platform.py
+                TPU_PKG_INIT=/root/torchtpu-vllm/src/vllm_torchtpu/__init__.py
+                if [ -f "${TPU_PLATFORM_PY}" ]; then
+                  python3 -c "import sys; p=sys.argv[1]; s=open(p).read(); h='    import vllm_torchtpu.offload.cpu_tpu  # noqa: F401\n'; 'vllm_torchtpu.offload.cpu_tpu' in s or open(p,'w').write(s.replace('def apply_tpu_patches() -> None:\n','def apply_tpu_patches() -> None:\n'+h,1))" "${TPU_PLATFORM_PY}"
+                fi
+                if ! grep -q "vllm_torchtpu.offload.cpu_tpu" "${TPU_PLATFORM_PY}" 2>/dev/null; then
+                  grep -q "vllm_torchtpu.offload.cpu_tpu" "${TPU_PKG_INIT}" || printf '\nimport vllm_torchtpu.offload.cpu_tpu  # noqa: F401\n' >> "${TPU_PKG_INIT}"
+                fi
+                rm -rf /root/torchtpu-vllm/src/vllm_torchtpu/platforms/__pycache__ /root/torchtpu-vllm/src/vllm_torchtpu/__pycache__
+                if grep -q "vllm_torchtpu.offload.cpu_tpu" "${TPU_PLATFORM_PY}" "${TPU_PKG_INIT}" 2>/dev/null; then
+                  echo "Applied TPU L2/L3 KV offloading patch to /root/torchtpu-vllm"
+                else
+                  echo "ERROR: could not install the TPU KV offloading import hook" >&2
+                  exit 1
+                fi
+              fi
+              python3 -c "import pathlib, torch_tpu._internal.profiler as p; hasattr(p, 'profiler_api') or open(p.__file__, 'a').write('\nfrom torch_tpu._internal.profiler import _api as profiler_api\n')" 2>/dev/null || true
+              echo "=== Starting Torch TPU vLLM Server: Gemma 4 Multi-Turn PPC Pool (TP=${TPU_TENSOR_PARALLEL_SIZE}, DP=${TPU_DATA_PARALLEL_SIZE}, EP=true) ==="
+              exec vllm serve "${MODEL_NAME}" \
+                --host 0.0.0.0 \
+                --port 8000 \
+                --served-model-name "${SERVED_MODEL_NAME}" \
+                --tensor-parallel-size=${TPU_TENSOR_PARALLEL_SIZE} \
+                --data-parallel-size=${TPU_DATA_PARALLEL_SIZE} \
+                --enable-expert-parallel \
+                --max-model-len=${MAX_MODEL_LEN} \
+                --max-num-batched-tokens=2048 \
+                --max-num-seqs=512 \
+                --async-scheduling \
+                --enable-prefix-caching \
+                --disable-hybrid-kv-cache-manager \
+                --kv-events-config "{\"enable_kv_cache_events\":true,\"publisher\":\"zmq\",\"endpoint\":\"tcp://*:5556\",\"topic\":\"kv@${POD_IP}:8000@${SERVED_MODEL_NAME}\"}" \
+                --gpu-memory-utilization=0.90 \
+                --kv-cache-dtype=fp8 \
+                --attention-backend CUSTOM \
+                --block-size=256 \
+                --language-model-only \
+                --limit-mm-per-prompt '{"image":0,"video":0,"audio":0}' \
+                --hf-overrides '{"architectures":["Gemma4ForCausalLM"]}' ${KV_TRANSFER_ARG}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llmd-tpu-service
+  labels:
+    llm-d.ai/workload: multi-turn
+spec:
+  selector:
+    app: llmd-tpu-decode
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+    - name: kv-events
+      port: 5556
+      targetPort: 5556
