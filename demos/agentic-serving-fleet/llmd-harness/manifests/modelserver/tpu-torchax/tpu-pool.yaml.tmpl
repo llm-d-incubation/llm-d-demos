@@ -1,0 +1,204 @@
+# TorchAx (`vllm-tpu:v0.27.0`) Multi-Turn Agentic ModelServer Pool (`llmd-tpu-decode`)
+# Alternative TPU backend (`TPU_BACKEND=torchax`) for RedHatAI/gemma-4-26B-A4B-it-FP8-Dynamic:
+#   - TP=8, DP=1, EP=true (`--tensor-parallel-size=8 --data-parallel-size=1 --enable-expert-parallel`)
+#   - `--disable-hybrid-kv-cache-manager` + `--enable-prefix-caching` + ZMQ `--kv-events-config`
+#   - `--kv-cache-dtype=fp8` + `--block-size=256` + `--hf-overrides '{"architectures":["Gemma4ForCausalLM"]}'`
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llmd-tpu-decode
+  labels:
+    app: llmd-tpu-decode
+    llm-d.ai/inferenceServing: "true"
+    llm-d.ai/workload: multi-turn
+    llm-d.ai/accelerator: tpu-v7x
+    llm-d.ai/backend: torchax
+    llm-d.ai/model: gemma-4-26B-A4B
+spec:
+  replicas: ${TPU_REPLICAS}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: llmd-tpu-decode
+  template:
+    metadata:
+      labels:
+        app: llmd-tpu-decode
+        llm-d.ai/inferenceServing: "true"
+        llm-d.ai/workload: multi-turn
+        llm-d.ai/accelerator: tpu-v7x
+        llm-d.ai/backend: torchax
+        llm-d.ai/model: gemma-4-26B-A4B
+    spec:
+      nodeSelector:
+        cloud.google.com/gke-tpu-topology: ${TPU_TOPOLOGY}
+        cloud.google.com/gke-tpu-accelerator: tpu7x
+      tolerations:
+        - key: cloud.google.com/gke-queued
+          operator: Exists
+          effect: NoSchedule
+        - key: google.com/tpu
+          operator: Exists
+          effect: NoSchedule
+      initContainers:
+        - name: tpu-node-setup
+          image: busybox
+          securityContext:
+            privileged: true
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              sysctl -w vm.max_map_count=33554432 || true
+              if [ -f /sys/module/vfio_iommu_type1/parameters/dma_entry_limit ]; then
+                echo 8000000 > /sys/module/vfio_iommu_type1/parameters/dma_entry_limit || true
+              fi
+              rm -rf /dev/shm/tmp/* || true
+              mkdir -p /dev/shm/dshm /dev/shm/hf-cache /dev/shm/tmp
+              chmod -R 777 /dev/shm/dshm /dev/shm/hf-cache /dev/shm/tmp
+          volumeMounts:
+            - name: host-shm
+              mountPath: /dev/shm
+      volumes:
+        - name: host-shm
+          hostPath:
+            path: /dev/shm
+            type: Directory
+        - name: dshm
+          hostPath:
+            path: /dev/shm/dshm
+            type: DirectoryOrCreate
+        - name: hf-cache-ram
+          hostPath:
+            path: /dev/shm/hf-cache
+            type: DirectoryOrCreate
+        - name: tmp-ram
+          hostPath:
+            path: /dev/shm/tmp
+            type: DirectoryOrCreate
+      containers:
+        - name: modelserver
+          image: ${TORCHAX_SERVING_IMAGE}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: status.podIP
+            - name: MODEL_NAME
+              value: "${MODEL_ID}"
+            - name: SERVED_MODEL_NAME
+              value: "${SERVED_MODEL_NAME}"
+            - name: PORT
+              value: "8000"
+            - name: HF_HOME
+              value: /var/cache/hf-cache
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: llm-d-hf-token
+                  key: HF_TOKEN
+                  optional: true
+            - name: TMPDIR
+              value: /tmp
+            - name: MODEL_IMPL_TYPE
+              value: vllm
+            - name: NEW_MODEL_DESIGN
+              value: "1"
+            - name: PJRT_DEVICE
+              value: TPU
+            - name: VLLM_TARGET_DEVICE
+              value: tpu
+            - name: VLLM_LOGGING_LEVEL
+              value: INFO
+            - name: VLLM_ENGINE_READY_TIMEOUT_S
+              value: "5400"
+          resources:
+            limits:
+              google.com/tpu: "${TPU_CHIPS_PER_NODE}"
+              memory: 800Gi
+              cpu: "180"
+            requests:
+              google.com/tpu: "${TPU_CHIPS_PER_NODE}"
+              memory: 800Gi
+              cpu: "180"
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+            - name: hf-cache-ram
+              mountPath: /var/cache/hf-cache
+            - name: hf-cache-ram
+              mountPath: /root/.cache/huggingface
+            - name: tmp-ram
+              mountPath: /tmp
+          ports:
+            - containerPort: 8000
+              name: http
+            - containerPort: 5556
+              name: kv-events
+          command:
+            - /bin/bash
+            - -c
+          args:
+            - |
+              export PYTHONUNBUFFERED=1
+              [[ -z "${HF_TOKEN:-}" ]] && unset HF_TOKEN || true
+              unset TPU_PROCESS_ADDRESSES TPU_WORKER_HOSTNAMES MEGASCALE_NUM_SLICES MEGASCALE_SLICE_ID MEGASCALE_COORDINATOR_ADDRESS || true
+              echo "=== Starting TorchAx (v0.27.0) Server: Gemma 4 PPC Pool (TP=8, DP=1, EP=true) ==="
+              exec vllm serve "${MODEL_NAME}" \
+                --host 0.0.0.0 \
+                --port 8000 \
+                --served-model-name "${SERVED_MODEL_NAME}" \
+                --tensor-parallel-size=8 \
+                --data-parallel-size=1 \
+                --enable-expert-parallel \
+                --max-model-len=${MAX_MODEL_LEN} \
+                --max-num-batched-tokens=2048 \
+                --max-num-seqs=512 \
+                --async-scheduling \
+                --enable-prefix-caching \
+                --disable-hybrid-kv-cache-manager \
+                --kv-events-config "{\"enable_kv_cache_events\":true,\"publisher\":\"zmq\",\"endpoint\":\"tcp://*:5556\",\"topic\":\"kv@${POD_IP}:8000@${SERVED_MODEL_NAME}\"}" \
+                --gpu-memory-utilization=0.90 \
+                --kv-cache-dtype=fp8 \
+                --block-size=256 \
+                --language-model-only \
+                --limit-mm-per-prompt '{"image":0,"video":0,"audio":0}' \
+                --hf-overrides '{"architectures":["Gemma4ForCausalLM"]}'
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llmd-tpu-service
+  labels:
+    llm-d.ai/workload: multi-turn
+spec:
+  selector:
+    app: llmd-tpu-decode
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+    - name: kv-events
+      port: 5556
+      targetPort: 5556

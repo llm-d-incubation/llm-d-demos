@@ -1,0 +1,321 @@
+# Two single-replica vLLM servers for google/gemma-4-12B-it on TPU v6e (pod-1 and pod-2).
+# This is the exact spec running in the demo cluster (regenerated from the live
+# objects' last-applied configuration).
+#
+# - Image: upstream github.com/vllm-project/vllm-torchtpu @ 3eb7abb5 built with
+#   ./docker/build_image.sh --target prod (no code changes). Replace the image
+#   below with your own build (see README, step 3.2).
+# - Each pod uses a whole ct6e-standard-4t node (4 TPU v6e chips, TP=4):
+#   pod-1 -> node pool tpu-v6e-spot, pod-2 -> node pool tpu-v6e-spot-decode.
+# - --kv-events-config publishes KV-cache events over ZMQ (:5557) for the llm-d
+#   endpoint picker's precise prefix-cache scorer.
+# - Prerequisites (prereqs.yaml + README step 3.3): Secret llm-d-hf-token (key
+#   HF_TOKEN), ServiceAccount ms-pd-llm-d-modelservice, PVCs
+#   model-storage-ms-pd-llm-d-modelservice-prefill-0 and model-storage-decode
+#   (Hugging Face cache, so restarts do not re-download the weights).
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    llm-d.ai/vllm-torchtpu-source: github.com/vllm-project/vllm-torchtpu@3eb7abb5cc6ff4bae816e988010cf7bee6e9225c
+  labels:
+    app: gemma4-12b-torchtpu
+    llm-d.ai/replica: pod-1
+  name: gemma4-12b-torchtpu-1
+  namespace: default
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: gemma4-12b-torchtpu
+      llm-d.ai/replica: pod-1
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        llm-d.ai/vllm-torchtpu-source: github.com/vllm-project/vllm-torchtpu@3eb7abb5cc6ff4bae816e988010cf7bee6e9225c
+      labels:
+        app: gemma4-12b-torchtpu
+        llm-d.ai/inference-serving: 'true'
+        llm-d.ai/model: gemma-4-12b-it
+        llm-d.ai/replica: pod-1
+    spec:
+      containers:
+      - command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "=== gemma-4-12B-it | UPSTREAM github.com/vllm-project/vllm-torchtpu @ 3eb7abb5cc6ff4bae816e988010cf7bee6e9225c | official docker/Dockerfile prod image, unmodified | aggregated (no KV connector) | replica=${REPLICA_ID} ==="
+          python3 - <<'PYEOF'
+          import importlib.metadata as m
+          pk = ["vllm", "vllm_torchtpu", "torch", "torch_tpu", "tpu-sync-torch", "jax", "jaxlib",
+                "libtpu", "transformers", "tokenizers"]
+          out = []
+          for p in pk:
+              try:
+                  out.append("%s=%s" % (p, m.version(p)))
+              except Exception:
+                  out.append("%s=n/a" % p)
+          print("installed:", " ".join(out))
+          PYEOF
+          KV_EVENTS_CONFIG="{\"enable_kv_cache_events\":true,\"publisher\":\"zmq\",\"endpoint\":\"tcp://*:5557\",\"topic\":\"kv@${POD_IP}:8000@google/gemma-4-12B-it\"}"
+          echo "KV_EVENTS_CONFIG=$KV_EVENTS_CONFIG"
+          exec vllm serve "google/gemma-4-12B-it" \
+            --port 8000 \
+            --tensor-parallel-size 4 \
+            --disable-uvicorn-access-log \
+            --gpu-memory-utilization 0.90 \
+            --max-model-len 65536 \
+            --kv-events-config "${KV_EVENTS_CONFIG}"
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: status.podIP
+        - name: REPLICA_ID
+          value: pod-1
+        - name: HF_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: HF_TOKEN
+              name: llm-d-hf-token
+        image: us-central1-docker.pkg.dev/your-gcp-project-id/llmd-tpu/vllm-torchtpu:latest
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: http
+            scheme: HTTP
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        name: vllm
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        - containerPort: 5557
+          name: kv-events
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /v1/models
+            port: http
+            scheme: HTTP
+          periodSeconds: 5
+          successThreshold: 1
+          timeoutSeconds: 2
+        resources:
+          limits:
+            cpu: '64'
+            google.com/tpu: '4'
+            memory: 256Gi
+          requests:
+            cpu: '64'
+            google.com/tpu: '4'
+            memory: 256Gi
+        startupProbe:
+          failureThreshold: 120
+          httpGet:
+            path: /health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 15
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 5
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /.config
+          name: metrics-volume
+        - mountPath: /dev/shm
+          name: shm
+        - mountPath: /.cache
+          name: torch-compile-cache
+        - mountPath: /root/.cache/huggingface
+          name: model-storage
+      dnsPolicy: ClusterFirst
+      nodeSelector:
+        cloud.google.com/gke-nodepool: tpu-v6e-spot
+        cloud.google.com/gke-tpu-accelerator: tpu-v6e-slice
+        cloud.google.com/gke-tpu-topology: 2x2
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: ms-pd-llm-d-modelservice
+      serviceAccountName: ms-pd-llm-d-modelservice
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - emptyDir: {}
+        name: metrics-volume
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 16Gi
+        name: shm
+      - emptyDir: {}
+        name: torch-compile-cache
+      - name: model-storage
+        persistentVolumeClaim:
+          claimName: model-storage-ms-pd-llm-d-modelservice-prefill-0
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    llm-d.ai/vllm-torchtpu-source: github.com/vllm-project/vllm-torchtpu@3eb7abb5cc6ff4bae816e988010cf7bee6e9225c
+  labels:
+    app: gemma4-12b-torchtpu
+    llm-d.ai/replica: pod-2
+  name: gemma4-12b-torchtpu-2
+  namespace: default
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: gemma4-12b-torchtpu
+      llm-d.ai/replica: pod-2
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        llm-d.ai/vllm-torchtpu-source: github.com/vllm-project/vllm-torchtpu@3eb7abb5cc6ff4bae816e988010cf7bee6e9225c
+      labels:
+        app: gemma4-12b-torchtpu
+        llm-d.ai/inference-serving: 'true'
+        llm-d.ai/model: gemma-4-12b-it
+        llm-d.ai/replica: pod-2
+    spec:
+      containers:
+      - command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "=== gemma-4-12B-it | UPSTREAM github.com/vllm-project/vllm-torchtpu @ 3eb7abb5cc6ff4bae816e988010cf7bee6e9225c | official docker/Dockerfile prod image, unmodified | aggregated (no KV connector) | replica=${REPLICA_ID} ==="
+          python3 - <<'PYEOF'
+          import importlib.metadata as m
+          pk = ["vllm", "vllm_torchtpu", "torch", "torch_tpu", "tpu-sync-torch", "jax", "jaxlib",
+                "libtpu", "transformers", "tokenizers"]
+          out = []
+          for p in pk:
+              try:
+                  out.append("%s=%s" % (p, m.version(p)))
+              except Exception:
+                  out.append("%s=n/a" % p)
+          print("installed:", " ".join(out))
+          PYEOF
+          KV_EVENTS_CONFIG="{\"enable_kv_cache_events\":true,\"publisher\":\"zmq\",\"endpoint\":\"tcp://*:5557\",\"topic\":\"kv@${POD_IP}:8000@google/gemma-4-12B-it\"}"
+          echo "KV_EVENTS_CONFIG=$KV_EVENTS_CONFIG"
+          exec vllm serve "google/gemma-4-12B-it" \
+            --port 8000 \
+            --tensor-parallel-size 4 \
+            --disable-uvicorn-access-log \
+            --gpu-memory-utilization 0.90 \
+            --max-model-len 65536 \
+            --kv-events-config "${KV_EVENTS_CONFIG}"
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: status.podIP
+        - name: REPLICA_ID
+          value: pod-2
+        - name: HF_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: HF_TOKEN
+              name: llm-d-hf-token
+        image: us-central1-docker.pkg.dev/your-gcp-project-id/llmd-tpu/vllm-torchtpu:latest
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: http
+            scheme: HTTP
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        name: vllm
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        - containerPort: 5557
+          name: kv-events
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /v1/models
+            port: http
+            scheme: HTTP
+          periodSeconds: 5
+          successThreshold: 1
+          timeoutSeconds: 2
+        resources:
+          limits:
+            cpu: '64'
+            google.com/tpu: '4'
+            memory: 256Gi
+          requests:
+            cpu: '64'
+            google.com/tpu: '4'
+            memory: 256Gi
+        startupProbe:
+          failureThreshold: 120
+          httpGet:
+            path: /health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 15
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 5
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /.config
+          name: metrics-volume
+        - mountPath: /dev/shm
+          name: shm
+        - mountPath: /.cache
+          name: torch-compile-cache
+        - mountPath: /root/.cache/huggingface
+          name: model-storage
+      dnsPolicy: ClusterFirst
+      nodeSelector:
+        cloud.google.com/gke-nodepool: tpu-v6e-spot-decode
+        cloud.google.com/gke-tpu-accelerator: tpu-v6e-slice
+        cloud.google.com/gke-tpu-topology: 2x2
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: ms-pd-llm-d-modelservice
+      serviceAccountName: ms-pd-llm-d-modelservice
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - emptyDir: {}
+        name: metrics-volume
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 16Gi
+        name: shm
+      - emptyDir: {}
+        name: torch-compile-cache
+      - name: model-storage
+        persistentVolumeClaim:
+          claimName: model-storage-decode

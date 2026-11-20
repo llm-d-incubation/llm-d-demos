@@ -1,0 +1,98 @@
+[
+ {
+  "label": "gb200-tp1-lustre-same-region-bpc16",
+  "leg": "tier",
+  "phase": "seq",
+  "sessions": 24,
+  "paras": 160,
+  "warm_ttft_p50": 599.0,
+  "warm_s": 13.0,
+  "fs_written_total_GB": 9.06,
+  "cold_ttft_p50": 379.5,
+  "cold_ttft_p95": 430.2,
+  "cold_ttft_max": 437.8,
+  "cold_wall_s": 10.7,
+  "cold_errors": 0,
+  "cold_B": {
+   "hbm_hit": 0.0,
+   "ext_q": 222378.0,
+   "ext_hit": 196608.0,
+   "cpu2gpu_MB": 9059.7,
+   "fs_read_MB": 9059.7,
+   "fs_read_s": 2.69,
+   "fs_lookup_async_s": 6.18
+  }
+ },
+ {
+  "label": "gb200-tp1-lustre-same-region-bpc16",
+  "leg": "tier",
+  "phase": "burst",
+  "sessions": 24,
+  "paras": 160,
+  "warm_ttft_p50": 578.0,
+  "warm_s": 13.0,
+  "fs_written_total_GB": 18.12,
+  "cold_ttft_p50": 1214.3,
+  "cold_ttft_p95": 1793.9,
+  "cold_ttft_max": 1855.7,
+  "cold_wall_s": 1.9,
+  "cold_errors": 0,
+  "cold_B": {
+   "hbm_hit": 0.0,
+   "ext_q": 222378.0,
+   "ext_hit": 196608.0,
+   "cpu2gpu_MB": 9059.7,
+   "fs_read_MB": 9059.7,
+   "fs_read_s": 8.64,
+   "fs_lookup_async_s": 42.25
+  }
+ },
+ {
+  "label": "gb200-tp1-lustre-same-region-bpc16",
+  "leg": "notier",
+  "phase": "seq",
+  "sessions": 24,
+  "paras": 160,
+  "warm_ttft_p50": 593.9,
+  "warm_s": 13.0,
+  "fs_written_total_GB": 27.18,
+  "cold_ttft_p50": 219.3,
+  "cold_ttft_p95": 266.4,
+  "cold_ttft_max": 366.1,
+  "cold_wall_s": 7.1,
+  "cold_errors": 0,
+  "cold_B": {
+   "hbm_hit": 0.0,
+   "ext_q": 222360.0,
+   "ext_hit": 0.0,
+   "cpu2gpu_MB": 0.0,
+   "fs_read_MB": 0.0,
+   "fs_read_s": 0.0,
+   "fs_lookup_async_s": 0.0
+  }
+ },
+ {
+  "label": "gb200-tp1-lustre-same-region-bpc16",
+  "leg": "notier",
+  "phase": "burst",
+  "sessions": 24,
+  "paras": 160,
+  "warm_ttft_p50": 593.6,
+  "warm_s": 13.1,
+  "fs_written_total_GB": 36.24,
+  "cold_ttft_p50": 1177.3,
+  "cold_ttft_p95": 1977.5,
+  "cold_ttft_max": 2040.5,
+  "cold_wall_s": 2.2,
+  "cold_errors": 0,
+  "cold_B": {
+   "hbm_hit": 0.0,
+   "ext_q": 222384.0,
+   "ext_hit": 0.0,
+   "cpu2gpu_MB": 0.0,
+   "fs_read_MB": 0.0,
+   "fs_read_s": 0.0,
+   "fs_lookup_async_s": 0.0
+  }
+ }
+]

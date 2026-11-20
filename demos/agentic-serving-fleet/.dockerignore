@@ -1,0 +1,11 @@
+.git
+.gitignore
+.gcloudignore
+.DS_Store
+docs/
+patches/
+shots/
+*.log
+*.png
+*.pdf
+demo_flow_mockup.html

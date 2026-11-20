@@ -1,0 +1,33 @@
+{
+  "elapsed_s": 6.0,
+  "pools": {
+    "multi-turn": {
+      "total_requests": 93,
+      "ok_requests": 93,
+      "error_requests": 0,
+      "qps": 15.49,
+      "input_tok_per_s": 32921.3,
+      "output_tok_per_s": 991.7,
+      "latency_p50_ms": 841.5,
+      "latency_p90_ms": 1170.3,
+      "latency_p99_ms": 1282.5,
+      "routed_backends": {
+        "tpu-v7x-torchtpu-multiturn": 93
+      }
+    },
+    "one-shot": {
+      "total_requests": 19,
+      "ok_requests": 19,
+      "error_requests": 0,
+      "qps": 3.17,
+      "input_tok_per_s": 143.8,
+      "output_tok_per_s": 153.9,
+      "latency_p50_ms": 1495.0,
+      "latency_p90_ms": 1614.9,
+      "latency_p99_ms": 1624.8,
+      "routed_backends": {
+        "gpu-vllm-oneshot": 19
+      }
+    }
+  }
+}

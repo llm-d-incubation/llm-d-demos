@@ -12,7 +12,9 @@ Community catalog of interactive demos, live-stage applications, and zero-cluste
 ## Demo Catalog
 
 <!-- catalog:start -->
-_No demos registered yet. Run `make new-demo SLUG=<name>` to add the first demo._
+| Demo | Capabilities | Local Simulator | Live Reference Stack | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| [**Agentic Serving Fleet**](demos/agentic-serving-fleet/README.md)<br>Interactive 5-screen dashboard and live cluster harness showing 1,000 stateful Hermes agents behind llm-d prefix-cache routing, priority flow control, and 3-tier KV cache offloading across heterogeneous accelerators. | `precise-prefix-cache-routing`, `flow-control`, `tiered-prefix-cache`, `heterogeneous-accelerators` | Yes (`make sim DEMO=agentic-serving-fleet`) | GKE 1.34+ with Agent Substrate (TPU v7x Ironwood, NVIDIA Blackwell / G4 GPUs) | Active |
 <!-- catalog:end -->
 
 ---

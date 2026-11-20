@@ -1,0 +1,194 @@
+# =============================================================================
+# llm-d Flow Control Objectives & Unified Header-Based Router Gateway
+#
+# 1. InferenceObjectives for llm-d Flow Control (multi-tenancy & priority bands):
+#    - agentic-multi-turn (priority 100): stateful multi-turn Hermes agents on TPU
+#    - oneshot-fast (priority 50): stateless one-shot Hermes tasks on GPU
+#    - best-effort-background (priority -10): background swarm tasks
+#
+# 2. Unified Envoy Ingress Gateway (llm-d-gateway):
+#    Inspects custom header `x-llm-d-workload`:
+#      - `x-llm-d-workload: multi-turn` -> routes to `llmd-tpu-epp` (TPU v7x Pool)
+#        and injects `x-llm-d-processed-by: tpu-v7x-torchtpu-pool` response header
+#      - `x-llm-d-workload: one-shot`   -> routes to `llmd-gpu-epp` (GPU Pool)
+#        and injects `x-llm-d-processed-by: gpu-vllm-oneshot-pool` response header
+# =============================================================================
+apiVersion: llm-d.ai/v1alpha2
+kind: InferenceObjective
+metadata:
+  name: agentic-multi-turn
+  namespace: ${NAMESPACE}
+spec:
+  priority: 100
+  poolRef:
+    name: llmd-tpu
+    kind: InferencePool
+    group: inference.networking.k8s.io
+---
+apiVersion: llm-d.ai/v1alpha2
+kind: InferenceObjective
+metadata:
+  name: oneshot-fast
+  namespace: ${GPU_NAMESPACE}
+spec:
+  priority: 50
+  poolRef:
+    name: llmd-gpu
+    kind: InferencePool
+    group: inference.networking.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llm-d-gateway-envoy
+  namespace: ${NAMESPACE}
+data:
+  envoy.yaml: |
+    static_resources:
+      listeners:
+        - name: listener_http
+          address:
+            socket_address:
+              address: 0.0.0.0
+              port_value: 8080
+          filter_chains:
+            - filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: llmd_ingress
+                    stream_idle_timeout: 600s
+                    route_config:
+                      name: llmd_header_router
+                      virtual_hosts:
+                        - name: llmd_unified_endpoint
+                          domains: ["*"]
+                          routes:
+                            # Route 1: Multi-Turn Agentic Traffic -> Optimized TPU Stack (EPP + Flow Control + Prefix Cache)
+                            - match:
+                                prefix: "/"
+                                headers:
+                                  - name: "x-llm-d-workload"
+                                    exact_match: "multi-turn"
+                              route:
+                                cluster: tpu_multi_turn_epp
+                                timeout: 600s
+                              response_headers_to_add:
+                                - header:
+                                    key: "x-llm-d-routed-pool"
+                                    value: "tpu-v7x-torchtpu-multiturn"
+                            # Route 2: One-Shot Agentic Traffic -> GPU Serving Stack
+                            - match:
+                                prefix: "/"
+                                headers:
+                                  - name: "x-llm-d-workload"
+                                    exact_match: "one-shot"
+                              route:
+                                cluster: gpu_oneshot_epp
+                                timeout: 300s
+                              response_headers_to_add:
+                                - header:
+                                    key: "x-llm-d-routed-pool"
+                                    value: "gpu-vllm-oneshot"
+                            # Default fallback -> TPU Multi-Turn Pool
+                            - match:
+                                prefix: "/"
+                              route:
+                                cluster: tpu_multi_turn_epp
+                                timeout: 600s
+                              response_headers_to_add:
+                                - header:
+                                    key: "x-llm-d-routed-pool"
+                                    value: "tpu-v7x-torchtpu-default"
+                    http_filters:
+                      - name: envoy.filters.http.router
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+      clusters:
+        - name: tpu_multi_turn_epp
+          connect_timeout: 5s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+            cluster_name: tpu_multi_turn_epp
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: ${TPU_BACKEND_HOST}
+                          port_value: ${TPU_BACKEND_PORT}
+        - name: gpu_oneshot_epp
+          connect_timeout: 5s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+            cluster_name: gpu_oneshot_epp
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: ${GPU_BACKEND_HOST}
+                          port_value: ${GPU_BACKEND_PORT}
+    admin:
+      address:
+        socket_address:
+          address: 0.0.0.0
+          port_value: 9901
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-d-gateway
+  namespace: ${NAMESPACE}
+  labels:
+    app: llm-d-gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: llm-d-gateway
+  template:
+    metadata:
+      labels:
+        app: llm-d-gateway
+    spec:
+      containers:
+        - name: envoy
+          image: envoyproxy/envoy:v1.31-latest
+          args: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 9901
+              name: admin
+          volumeMounts:
+            - name: envoy-config
+              mountPath: /etc/envoy
+          resources:
+            requests:
+              cpu: "2"
+              memory: "2Gi"
+      volumes:
+        - name: envoy-config
+          configMap:
+            name: llm-d-gateway-envoy
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-d-gateway
+  namespace: ${NAMESPACE}
+  labels:
+    app: llm-d-gateway
+spec:
+  selector:
+    app: llm-d-gateway
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+    - name: admin
+      port: 9901
+      targetPort: 9901

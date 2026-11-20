@@ -1,0 +1,98 @@
+[
+ {
+  "label": "b200-tp2-lustre-cross-region-default-chunk",
+  "leg": "tier",
+  "phase": "seq",
+  "sessions": 24,
+  "paras": 160,
+  "warm_ttft_p50": 48787.4,
+  "warm_s": 167.7,
+  "fs_written_total_GB": 9.56,
+  "cold_ttft_p50": 16548.2,
+  "cold_ttft_p95": 17354.1,
+  "cold_ttft_max": 20129.5,
+  "cold_wall_s": 399.2,
+  "cold_errors": 0,
+  "cold_B": {
+   "hbm_hit": 0.0,
+   "ext_q": 222384.0,
+   "ext_hit": 221184.0,
+   "cpu2gpu_MB": 9563.0,
+   "fs_read_MB": 9563.0,
+   "fs_read_s": 218.99,
+   "fs_lookup_async_s": 26329.89
+  }
+ },
+ {
+  "label": "b200-tp2-lustre-cross-region-default-chunk",
+  "leg": "tier",
+  "phase": "burst",
+  "sessions": 24,
+  "paras": 160,
+  "warm_ttft_p50": 47657.1,
+  "warm_s": 164.7,
+  "fs_written_total_GB": 19.13,
+  "cold_ttft_p50": 121346.9,
+  "cold_ttft_p95": 186425.5,
+  "cold_ttft_max": 186432.8,
+  "cold_wall_s": 186.5,
+  "cold_errors": 0,
+  "cold_B": {
+   "hbm_hit": 0.0,
+   "ext_q": 222384.0,
+   "ext_hit": 221184.0,
+   "cpu2gpu_MB": 9563.0,
+   "fs_read_MB": 9563.0,
+   "fs_read_s": 208.26,
+   "fs_lookup_async_s": 361720.3
+  }
+ },
+ {
+  "label": "b200-tp2-lustre-cross-region-default-chunk",
+  "leg": "notier",
+  "phase": "seq",
+  "sessions": 24,
+  "paras": 160,
+  "warm_ttft_p50": 47399.3,
+  "warm_s": 164.8,
+  "fs_written_total_GB": 28.69,
+  "cold_ttft_p50": 198.4,
+  "cold_ttft_p95": 201.2,
+  "cold_ttft_max": 274.5,
+  "cold_wall_s": 6.6,
+  "cold_errors": 0,
+  "cold_B": {
+   "hbm_hit": 0.0,
+   "ext_q": 222384.0,
+   "ext_hit": 0.0,
+   "cpu2gpu_MB": 0.0,
+   "fs_read_MB": 0.0,
+   "fs_read_s": 0.0,
+   "fs_lookup_async_s": 0.0
+  }
+ },
+ {
+  "label": "b200-tp2-lustre-cross-region-default-chunk",
+  "leg": "notier",
+  "phase": "burst",
+  "sessions": 24,
+  "paras": 160,
+  "warm_ttft_p50": 46390.2,
+  "warm_s": 161.0,
+  "fs_written_total_GB": 38.25,
+  "cold_ttft_p50": 1010.2,
+  "cold_ttft_p95": 1655.4,
+  "cold_ttft_max": 1665.9,
+  "cold_wall_s": 1.8,
+  "cold_errors": 0,
+  "cold_B": {
+   "hbm_hit": 0.0,
+   "ext_q": 222360.0,
+   "ext_hit": 0.0,
+   "cpu2gpu_MB": 0.0,
+   "fs_read_MB": 0.0,
+   "fs_read_s": 0.0,
+   "fs_lookup_async_s": 0.0
+  }
+ }
+]

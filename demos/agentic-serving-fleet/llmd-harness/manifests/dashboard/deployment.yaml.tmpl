@@ -1,0 +1,202 @@
+# Rendered by scripts/86_deploy_dashboard_image.sh via envsubst.
+# Variables: ${NAMESPACE} ${DASHBOARD_IMAGE} ${SERVED_MODEL_NAME} ${BASELINE_URLS} ${POD_METRICS_HOSTS} ${AB_CONCURRENCY}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llmd-live-dashboard
+  namespace: ${NAMESPACE}
+  labels:
+    app: llmd-live-dashboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: llmd-live-dashboard
+  template:
+    metadata:
+      labels:
+        app: llmd-live-dashboard
+    spec:
+      containers:
+        - name: dashboard
+          image: ${DASHBOARD_IMAGE}
+          imagePullPolicy: Always
+          args:
+            - "--host=0.0.0.0"
+            - "--port=8085"
+            - "--gateway-url=http://llm-d-gateway.${NAMESPACE}.svc.cluster.local/v1/chat/completions"
+            - "--model=${SERVED_MODEL_NAME}"
+          env:
+            # In GKE, the simulation sidecar runs as its own 'sim' container below on port 8086.
+            - name: APP_MODE
+              value: "live"
+            # "Without llm-d" baseline: hit the vLLM Service directly (kube-proxy round-robin, no EPP).
+            - name: BASELINE_URLS
+              value: "${BASELINE_URLS}"
+            # vLLM /metrics scrape targets (host:port) for the live KV prefix-cache hit rate.
+            - name: POD_METRICS_HOSTS
+              value: "${POD_METRICS_HOSTS}"
+            # 0 (Oct 9) = no synthetic sessions; the Hermes agents on the A/B pool are the A/B samples.
+            - name: AB_CONCURRENCY
+              value: "${AB_CONCURRENCY}"
+            # The pool the A/B runs on (B2): both sides target the same pool; KV-aware routing needs >= 2 endpoints.
+            - name: AB_POOL
+              value: "${AB_POOL}"
+            - name: AB_KV_HOSTS
+              value: "${AB_KV_HOSTS}"
+            - name: AB_WORKLOAD
+              value: "${AB_WORKLOAD}"
+            - name: AB_OBJECTIVE
+              value: "${AB_OBJECTIVE}"
+            # Real hardware behind the pool (0.1): filled by the deploy script from node labels + Deployments.
+            - name: HW_TPU
+              value: "${HW_TPU}"
+            - name: HW_GPU
+              value: "${HW_GPU}"
+            - name: HW_TPU_PODS
+              value: "${HW_TPU_PODS}"
+            - name: HW_GPU_PODS
+              value: "${HW_GPU_PODS}"
+            # Oct 8: chip name, TPU topology and chip counts for the stack view's Accelerators row.
+            - name: HW_TPU_CHIP
+              value: "${HW_TPU_CHIP}"
+            - name: HW_TPU_DETAIL
+              value: "${HW_TPU_DETAIL}"
+            - name: HW_TPU_TOPOLOGY
+              value: "${HW_TPU_TOPOLOGY}"
+            - name: HW_TPU_CHIPS
+              value: "${HW_TPU_CHIPS}"
+            - name: HW_GPU_CHIP
+              value: "${HW_GPU_CHIP}"
+            - name: HW_GPU_DETAIL
+              value: "${HW_GPU_DETAIL}"
+            - name: HW_GPU_CHIPS
+              value: "${HW_GPU_CHIPS}"
+            # Parallel Hermes agent requesters: even -> the agents' pool via the gateway, odd -> the A/B pool
+            # (round-robin Service or gateway, per the Routing toggle).
+            - name: LIVE_GATEWAY_WORKERS
+              value: "${LIVE_GATEWAY_WORKERS}"
+            - name: AGENT_THINK_S
+              value: "${AGENT_THINK_S}"
+            # Oct 9: A/B workload shape (see abbench.py): turns per session, workspace prefix length (paras), output cap.
+            - name: AB_TURNS
+              value: "${AB_TURNS}"
+            - name: AB_PREFIX_PARAS
+              value: "${AB_PREFIX_PARAS}"
+            - name: AB_MAX_TOKENS
+              value: "${AB_MAX_TOKENS}"
+            - name: ENABLE_KV_TIERING
+              value: "${ENABLE_KV_TIERING}"
+            - name: ENABLE_KV_OFFLOAD
+              value: "${ENABLE_KV_OFFLOAD}"
+            - name: ENABLE_KV_STORAGE_TIER
+              value: "${ENABLE_KV_STORAGE_TIER}"
+            - name: KV_TIER_ENABLED
+              value: "${KV_TIER_ENABLED}"
+            - name: KV_TIER_HBM_CAP_BYTES
+              value: "${KV_TIER_HBM_CAP_BYTES}"
+            - name: KV_TIER_CPU_BYTES
+              value: "${KV_TIER_CPU_BYTES}"
+            - name: KV_TIER_CPU_BYTES_GPU
+              value: "${KV_TIER_CPU_BYTES_GPU}"
+            - name: KV_TIER_CPU_BYTES_TPU
+              value: "${KV_TIER_CPU_BYTES_TPU}"
+            - name: KV_TIER_STORAGE_BYTES
+              value: "${KV_TIER_STORAGE_BYTES}"
+            # Tier 3 panel: scale-out replicas (scripts/62_deploy_kv_storage_replicas.sh). Empty hosts = panel off.
+            - name: AB_KV_STORAGE_HOSTS
+              value: "${AB_KV_STORAGE_HOSTS}"
+            - name: AB_KV_STORAGE_URLS
+              value: "${AB_KV_STORAGE_URLS}"
+            - name: KV_STORAGE_WORKERS
+              value: "${KV_STORAGE_WORKERS}"
+            - name: KV_STORAGE_RING
+              value: "${KV_STORAGE_RING}"
+            - name: KV_STORAGE_THINK_S
+              value: "${KV_STORAGE_THINK_S}"
+            - name: KV_STORAGE_REPLICA_HBM_CAP_BYTES
+              value: "${KV_STORAGE_REPLICA_HBM_CAP_BYTES}"
+            - name: KV_STORAGE_REPLICA_CPU_BYTES
+              value: "${KV_STORAGE_REPLICA_CPU_BYTES}"
+            - name: DASHBOARD_BUILD
+              value: "${DASHBOARD_IMAGE}"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          ports:
+            - name: http
+              containerPort: 8085
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /api/state
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/state
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "1Gi"
+        # Oct 9: simulation sidecar. The same image, running mock_server.py; the live server proxies /sim/* to it so
+        # the page can switch Live <-> Simulation from the Settings drawer without a redeploy.
+        - name: sim
+          image: ${DASHBOARD_IMAGE}
+          imagePullPolicy: Always
+          command: ["python3", "/app/dashboard/mock_server.py"]
+          args: ["--port=8086", "--harness", "hermes"]
+          env:
+            - name: DASHBOARD_BUILD
+              value: "${DASHBOARD_IMAGE}"
+            - name: ENABLE_KV_TIERING
+              value: "${ENABLE_KV_TIERING}"
+            - name: ENABLE_KV_STORAGE_TIER
+              value: "${ENABLE_KV_STORAGE_TIER}"
+            - name: KV_TIER_ENABLED
+              value: "${KV_TIER_ENABLED}"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          ports:
+            - name: sim
+              containerPort: 8086
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /api/state
+              port: sim
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+---
+# ClusterIP only: reach it from the cloudtop with
+#   kubectl -n ${NAMESPACE} port-forward svc/llmd-live-dashboard 8085:80
+# (scripts/86_deploy_dashboard_image.sh --port-forward does this for you).
+apiVersion: v1
+kind: Service
+metadata:
+  name: llmd-live-dashboard
+  namespace: ${NAMESPACE}
+  labels:
+    app: llmd-live-dashboard
+spec:
+  type: ClusterIP
+  selector:
+    app: llmd-live-dashboard
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8085
+      protocol: TCP

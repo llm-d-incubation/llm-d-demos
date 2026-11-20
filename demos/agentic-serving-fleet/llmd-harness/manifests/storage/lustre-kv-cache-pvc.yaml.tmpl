@@ -1,0 +1,42 @@
+# Static PV/PVC for an existing Google Cloud Managed Lustre instance, used as the shared-storage
+# KV tier (ENABLE_KV_STORAGE_TIER=1). Render with:
+#   envsubst '${GPU_NAMESPACE} ${KV_STORAGE_PVC} ${LUSTRE_INSTANCE_PATH} ${LUSTRE_FILESYSTEM} ${LUSTRE_IP} ${LUSTRE_CAPACITY}' \
+#     < manifests/storage/lustre-kv-cache-pvc.yaml.tmpl | kubectl apply -f -
+# where LUSTRE_INSTANCE_PATH is projects/<project>/locations/<zone>/instances/<name>, and
+# LUSTRE_FILESYSTEM / LUSTRE_IP come from `gcloud lustre instances describe` (mountPoint ip@tcp:/fs).
+# Requirements: the Lustre CSI addon enabled on the cluster, the instance in the same region as
+# the GPU node pool and on the cluster's VPC. The CSI driver allows only one mount per Lustre
+# filesystem name per node, so reuse this PVC rather than creating a second PV for the same instance.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ${KV_STORAGE_PVC}-pv
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: ${LUSTRE_CAPACITY}
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  volumeMode: Filesystem
+  claimRef:
+    name: ${KV_STORAGE_PVC}
+    namespace: ${GPU_NAMESPACE}
+  csi:
+    driver: lustre.csi.storage.gke.io
+    volumeHandle: ${LUSTRE_INSTANCE_PATH}
+    volumeAttributes:
+      filesystem: ${LUSTRE_FILESYSTEM}
+      ip: ${LUSTRE_IP}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ${KV_STORAGE_PVC}
+  namespace: ${GPU_NAMESPACE}
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: ${KV_STORAGE_PVC}-pv
+  resources:
+    requests:
+      storage: ${LUSTRE_CAPACITY}
