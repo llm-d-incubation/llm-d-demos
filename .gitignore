@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node / JS
+node_modules/
+npm-debug.log*
+
+# Go
+*.test
+*.out
+
+# Secrets, local env, and cluster state
+.env
+.env.local
+*.local.yaml
+.kubeconfig
+*.kubeconfig
+kubeconfig
+kubeconfig-*
+gke_gcloud_auth_plugin*
+*.pem
+*.key
+*credentials*.json
+service-account*.json
+
+# Local agent / editor config
+.claude/
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*.log
+/tmp/
